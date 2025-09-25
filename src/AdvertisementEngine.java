@@ -29,8 +29,9 @@ class AdvertisementEngine {
     private final ReentrantReadWriteLock lock;
     private int campaignIdCounter;
     private MatchingStrategy matchingStrategy;
-    
-    public AdvertisementEngine() {
+    private  int maxHistoryCapacity;
+
+    public AdvertisementEngine(int maxHistoryCapacity) {
         this.advertisers = new ConcurrentHashMap<>();
         this.users = new ConcurrentHashMap<>();
         this.campaigns = new ConcurrentHashMap<>();
@@ -38,10 +39,15 @@ class AdvertisementEngine {
         this.systemConstraints = new ArrayList<>();
         this.lock = new ReentrantReadWriteLock();
         this.campaignIdCounter = 1;
+        this.maxHistoryCapacity = maxHistoryCapacity;
         
         // Initialize default system constraints
         addSystemConstraint(new UserFrequencyConstraint());
         addSystemConstraint(new GlobalFrequencyConstraint());
+    }
+
+    public AdvertisementEngine() {
+        this(10000); // Default capacity
     }
     
     // P0 Requirements Implementation
@@ -118,8 +124,9 @@ class AdvertisementEngine {
         if (selected != null) {
             Advertiser advertiser = advertisers.get(selected.getAdvertiserId());
             if (advertiser.deductBudget(selected.getBidAmount())) {
-                adServingHistory.add(new AdServingRecord(
-                        selected.getCampaignId(), userId, LocalDateTime.now()));
+                AdServingRecord adServingRecord = new AdServingRecord(
+                        selected.getCampaignId(), userId, LocalDateTime.now());
+                addToHistory(adServingRecord);
                 return selected;
             }
         }
@@ -154,6 +161,17 @@ class AdvertisementEngine {
         }
         return false;
     }
+     private void addToHistory(AdServingRecord record) {
+        synchronized(adServingHistory) {
+            
+            // Maintain capacity by removing oldest record
+            if (adServingHistory.size() == maxHistoryCapacity) {
+                
+                adServingHistory.remove(0);
+            }
+            adServingHistory.add(record);
+        }
+    }
     
     // Utility methods for testing and monitoring
     
@@ -172,5 +190,13 @@ class AdvertisementEngine {
     
     public List<AdServingRecord> getAdServingHistory() {
         return new ArrayList<>(adServingHistory);
+    }
+
+    public void setMaxHistoryCapacity(int maxHistoryCapacity) {
+        this.maxHistoryCapacity = maxHistoryCapacity;
+    }
+
+    public int getMaxHistoryCapacity() {
+        return maxHistoryCapacity;
     }
 }
