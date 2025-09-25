@@ -10,7 +10,7 @@ import Entities.Advertiser;
 import Entities.Campaign;
 import Entities.User;
 
-class DefaultMatchingStrategy implements MatchingStrategy {
+public class DefaultMatchingStrategy implements MatchingStrategy {
     @Override
     public List<Campaign> apply(List<Campaign> campaigns, User user, String city, 
                                List<AdServingRecord> userHistory, List<AdServingRecord> globalHistory,
@@ -30,7 +30,7 @@ class DefaultMatchingStrategy implements MatchingStrategy {
     private boolean violatesUserConstraint(Campaign campaign, List<AdServingRecord> userHistory) {
         return userHistory.stream()
                 .filter(r -> r.getCampaignId().equals(campaign.getCampaignId()))
-                .count() >= 10;
+                .count() >0;
     }
     
     private boolean violatesGlobalConstraint(Campaign campaign, List<AdServingRecord> globalHistory) {

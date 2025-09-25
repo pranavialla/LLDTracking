@@ -29,9 +29,8 @@ class AdvertisementEngine {
     private final ReentrantReadWriteLock lock;
     private int campaignIdCounter;
     private MatchingStrategy matchingStrategy;
-    private  int maxHistoryCapacity;
 
-    public AdvertisementEngine(int maxHistoryCapacity) {
+    public AdvertisementEngine() {
         this.advertisers = new ConcurrentHashMap<>();
         this.users = new ConcurrentHashMap<>();
         this.campaigns = new ConcurrentHashMap<>();
@@ -39,17 +38,14 @@ class AdvertisementEngine {
         this.systemConstraints = new ArrayList<>();
         this.lock = new ReentrantReadWriteLock();
         this.campaignIdCounter = 1;
-        this.maxHistoryCapacity = maxHistoryCapacity;
+
         
         // Initialize default system constraints
         addSystemConstraint(new UserFrequencyConstraint());
         addSystemConstraint(new GlobalFrequencyConstraint());
     }
 
-    public AdvertisementEngine() {
-        this(10000); // Default capacity
-    }
-    
+
     // P0 Requirements Implementation
     
     public String addAdvertiser(String name) {
@@ -126,7 +122,7 @@ class AdvertisementEngine {
             if (advertiser.deductBudget(selected.getBidAmount())) {
                 AdServingRecord adServingRecord = new AdServingRecord(
                         selected.getCampaignId(), userId, LocalDateTime.now());
-                addToHistory(adServingRecord);
+                adServingHistory.add(adServingRecord);
                 return selected;
             }
         }
@@ -151,27 +147,7 @@ class AdvertisementEngine {
             lock.writeLock().unlock();
         }
     }
-    
-    private boolean violatesSystemConstraints(Campaign campaign, User user, 
-                                            List<AdServingRecord> userHistory) {
-        for (SystemConstraint constraint : systemConstraints) {
-            if (constraint.isViolated(campaign, user, userHistory, adServingHistory)) {
-                return true;
-            }
-        }
-        return false;
-    }
-     private void addToHistory(AdServingRecord record) {
-        synchronized(adServingHistory) {
-            
-            // Maintain capacity by removing oldest record
-            if (adServingHistory.size() == maxHistoryCapacity) {
-                
-                adServingHistory.remove(0);
-            }
-            adServingHistory.add(record);
-        }
-    }
+
     
     // Utility methods for testing and monitoring
     
@@ -184,19 +160,9 @@ class AdvertisementEngine {
         return campaigns.size();
     }
     
-    public int getTotalAdServings() {
-        return adServingHistory.size();
-    }
     
     public List<AdServingRecord> getAdServingHistory() {
         return new ArrayList<>(adServingHistory);
     }
 
-    public void setMaxHistoryCapacity(int maxHistoryCapacity) {
-        this.maxHistoryCapacity = maxHistoryCapacity;
-    }
-
-    public int getMaxHistoryCapacity() {
-        return maxHistoryCapacity;
-    }
 }
