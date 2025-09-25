@@ -15,6 +15,7 @@ import Entities.AdServingRecord;
 import Entities.Advertiser;
 import Entities.Campaign;
 import Entities.User;
+import MatchingStrategy.MatchingStrategy;
 import SystemConstraint.GlobalFrequencyConstraint;
 import SystemConstraint.SystemConstraint;
 import SystemConstraint.UserFrequencyConstraint;
@@ -27,6 +28,7 @@ class AdvertisementEngine {
     private final List<SystemConstraint> systemConstraints;
     private final ReentrantReadWriteLock lock;
     private int campaignIdCounter;
+    private MatchingStrategy matchingStrategy;
     
     public AdvertisementEngine() {
         this.advertisers = new ConcurrentHashMap<>();
@@ -91,55 +93,47 @@ class AdvertisementEngine {
     
     public Campaign matchAdvertisement(String userId, String city) {
         User user = users.get(userId);
-        if (user == null) {
-            return null;
+        if (user == null) return null;
+        
+        // Get user history
+        List<AdServingRecord> userHistory = adServingHistory.stream()
+                .filter(r -> r.getUserId().equals(userId))
+                .sorted((r1, r2) -> r2.getServedAt().compareTo(r1.getServedAt()))
+                .limit(10)
+                .collect(Collectors.toList());
+        
+        // Apply current strategy
+        List<Campaign> candidates = matchingStrategy.apply(
+                new ArrayList<>(campaigns.values()), user, city, 
+                userHistory, adServingHistory, advertisers);
+        
+        if (candidates.isEmpty()) return null;
+        
+        // Select highest bid
+        Campaign selected = candidates.stream()
+                .max(Comparator.comparingDouble(Campaign::getBidAmount))
+                .orElse(null);
+        
+        // Deduct budget and record
+        if (selected != null) {
+            Advertiser advertiser = advertisers.get(selected.getAdvertiserId());
+            if (advertiser.deductBudget(selected.getBidAmount())) {
+                adServingHistory.add(new AdServingRecord(
+                        selected.getCampaignId(), userId, LocalDateTime.now()));
+                return selected;
+            }
         }
         
-        lock.readLock().lock();
-        try {
-            // Get user's ad history (last 10 records)
-            List<AdServingRecord> userHistory = adServingHistory.stream()
-                    .filter(record -> record.getUserId().equals(userId))
-                    .sorted((r1, r2) -> r2.getServedAt().compareTo(r1.getServedAt()))
-                    .limit(10)
-                    .collect(Collectors.toList());
-            
-            // Find matching campaigns
-            List<Campaign> matchingCampaigns = campaigns.values().stream()
-                    .filter(Campaign::isActive)
-                    .filter(campaign -> campaign.matchesUser(user, city))
-                    .filter(campaign -> {
-                        Advertiser advertiser = advertisers.get(campaign.getAdvertiserId());
-                        return advertiser != null && advertiser.getBudget() >= campaign.getBidAmount();
-                    })
-                    .filter(campaign -> !violatesSystemConstraints(campaign, user, userHistory))
-                    .collect(Collectors.toList());
-            
-            if (matchingCampaigns.isEmpty()) {
-                return null;
-            }
-            
-            // Select campaign with highest bid
-            Campaign selectedCampaign = matchingCampaigns.stream()
-                    .max(Comparator.comparingDouble(Campaign::getBidAmount))
-                    .orElse(null);
-            
-            if (selectedCampaign != null) {
-                // Deduct budget and record serving
-                Advertiser advertiser = advertisers.get(selectedCampaign.getAdvertiserId());
-                if (advertiser.deductBudget(selectedCampaign.getBidAmount())) {
-                    adServingHistory.add(new AdServingRecord(
-                            selectedCampaign.getCampaignId(), userId, LocalDateTime.now()));
-                    return selectedCampaign;
-                }
-            }
-            
-            return null;
-        } finally {
-            lock.readLock().unlock();
-        }
+        return null;
+    }
+
+    public void setMatchingStrategy(MatchingStrategy strategy) {
+        this.matchingStrategy = strategy;
     }
     
+    public String getCurrentStrategy() {
+        return matchingStrategy.getName();
+    }
     // P1 Requirements - System Constraints Management
     
     public void addSystemConstraint(SystemConstraint constraint) {
